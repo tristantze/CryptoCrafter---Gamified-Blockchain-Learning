@@ -1,0 +1,28 @@
+:root {
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: #f8fafc;
+  background: #050816;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #050816;
+}
+
+body {
+  overscroll-behavior: none;
+}

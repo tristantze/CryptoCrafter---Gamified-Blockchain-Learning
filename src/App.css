@@ -1,0 +1,17 @@
+#game-container {
+  width: 100vw;
+  height: 100svh;
+  overflow: hidden;
+  background: #050816;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game-container canvas {
+  display: block;
+  max-width: 100vw;
+  max-height: 100svh;
+  image-rendering: pixelated;
+}
