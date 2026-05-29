@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { assetKeys, createSharedAnimations, loadGameAssets } from './assets';
+import { addFullscreenRectangle, getLayout, setupResponsiveScene } from './responsive';
 
 type SceneryKey = 'mine' | 'council' | 'forge';
 
@@ -58,6 +59,7 @@ export default class SceneryScene extends Phaser.Scene {
   }
 
   create() {
+    setupResponsiveScene(this);
     this.cameras.main.setBackgroundColor('#0f172a');
     createSharedAnimations(this);
     this.drawScenery();
@@ -89,7 +91,7 @@ export default class SceneryScene extends Phaser.Scene {
 
   private drawScenery() {
     if (this.keyName === 'mine') {
-      this.add.rectangle(180, 320, 360, 640, 0x111827);
+      addFullscreenRectangle(this, 0x111827);
       this.add.circle(180, 316, 218, 0x1f2937);
       this.add.circle(180, 238, 86, 0x020617);
       this.add.rectangle(180, 460, 360, 190, 0x0f172a);
@@ -99,7 +101,7 @@ export default class SceneryScene extends Phaser.Scene {
     }
 
     if (this.keyName === 'council') {
-      this.add.rectangle(180, 320, 360, 640, 0x172033);
+      addFullscreenRectangle(this, 0x172033);
       this.add.rectangle(180, 274, 292, 190, 0x334155).setStrokeStyle(4, 0x94a3b8);
       this.add.triangle(180, 140, 34, 210, 326, 210, 180, 104, 0x475569);
       this.add.rectangle(180, 386, 246, 34, 0x0f172a);
@@ -110,7 +112,7 @@ export default class SceneryScene extends Phaser.Scene {
     }
 
     if (this.keyName === 'forge') {
-      this.add.rectangle(180, 320, 360, 640, 0x1f1b16);
+      addFullscreenRectangle(this, 0x1f1b16);
       this.add.rectangle(180, 398, 322, 198, 0x292524).setStrokeStyle(4, 0x78716c);
       this.add.circle(180, 292, 88, 0xef4444, 0.34);
       this.add.sprite(180, 292, assetKeys.fire).setScale(14).play('forge-fire');
@@ -138,20 +140,22 @@ export default class SceneryScene extends Phaser.Scene {
   }
 
   private createTextBox() {
-    this.add.rectangle(180, 524, 322, 164, 0x020617, 0.92).setStrokeStyle(3, 0x475569);
-    this.add.text(34, 462, 'You', {
+    const layout = getLayout(this);
+    const boxY = layout.safeBottom - 82;
+    this.add.rectangle(180, boxY, 322, 164, 0x020617, 0.92).setStrokeStyle(3, 0x475569);
+    this.add.text(34, boxY - 62, 'You', {
       color: '#86efac',
       fontSize: '13px',
       fontFamily: 'monospace',
     });
-    this.bodyText = this.add.text(34, 492, '', {
+    this.bodyText = this.add.text(34, boxY - 32, '', {
       color: '#e2e8f0',
       fontSize: '14px',
       fontFamily: 'monospace',
       lineSpacing: 8,
       wordWrap: { width: 292 },
     });
-    this.add.text(180, 592, 'Tap to continue', {
+    this.add.text(180, boxY + 68, 'Tap to continue', {
       color: '#64748b',
       fontSize: '10px',
       fontFamily: 'monospace',

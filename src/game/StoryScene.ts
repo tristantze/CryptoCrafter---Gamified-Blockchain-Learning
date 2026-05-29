@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
+import { arduinoBridge } from './arduinoBridge';
 import { assetKeys, createSharedAnimations, loadGameAssets } from './assets';
+import { saveCheckpoint } from './progress';
+import { addCoverImage, addFullscreenRectangle, getLayout, setupResponsiveScene } from './responsive';
 
 type StoryStage =
   | 'intro'
@@ -55,7 +58,7 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
       },
       {
         speaker: 'You',
-        text: 'Everyone says mining a block is just guessing numbers, but it sounds harder than that.',
+        text: 'Everyone says mining a block is just guessing numbers. That sounds suspiciously like homework with a helmet.',
       },
       {
         speaker: 'You',
@@ -81,15 +84,15 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
       },
       {
         speaker: 'Old Man',
-        text: 'Courage helps, but mining needs effort. You try hashes until one meets the target.',
+        text: 'Courage helps. So does patience. Mining means trying little codes until one finally fits.',
       },
       {
         speaker: 'You',
-        text: 'So it is not magic. It is work the whole network can check.',
+        text: 'So it is not magic. It is a lot of work that other people can check.',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. Come along, and we will turn that work into your first block.',
+        text: 'Exactly. Come along. Let us turn that work into your first block.',
       },
     ],
   },
@@ -100,35 +103,35 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'Old Man',
-        text: 'Here we are. Before you swing, remember what mining really means.',
+        text: 'Here we are. Before you swing, let us keep this simple.',
       },
       {
         speaker: 'Old Man',
-        text: 'A block is like a sealed page of transactions. To mine it, you search for a hash the network accepts.',
+        text: 'A block is like a page of payments. Mining is finding the right short code for that page.',
       },
       {
         speaker: 'You',
-        text: 'That means the correct ore is not random treasure. It is the hash that matches the target.',
+        text: 'So the shiny ore is not just treasure. It is the code the village will accept.',
       },
       {
         speaker: 'Old Man',
-        text: 'Right. First, gather energy. That represents computing effort, the work miners spend trying possibilities.',
+        text: 'Right. First, gather energy. That stands for the effort miners spend trying again and again.',
       },
       {
         speaker: 'Old Man',
-        text: 'Then find the special crypto ore. Hold it steady to mine, and do not let go until the progress bar fills.',
+        text: 'Then find the special ore. Hold it steady until the bar fills. No heroic dropping at the last second.',
       },
       {
         speaker: 'You',
-        text: 'So I charge up, identify the target hash, then hold to prove enough work was spent.',
+        text: 'Charge up, find the right code, and hold long enough to prove I did the work.',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. Faster rounds mean pressure rises, just like real miners compete to find valid blocks first.',
+        text: 'Exactly. Each round gets faster, because miners are always racing to finish first.',
       },
       {
         speaker: 'You',
-        text: 'Understood. Find the valid hash, spend effort, and finish the block.',
+        text: 'Got it. Find the right code, spend the effort, finish the block.',
       },
     ],
   },
@@ -140,27 +143,27 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'You',
-        text: 'I did it... the block accepted my hash. That took real effort.',
+        text: 'I did it... the block accepted my code. My arms are filing a complaint.',
       },
       {
         speaker: 'Old Man',
-        text: 'Well done. Mining proves you spent work, but it does not prove every transaction is valid.',
+        text: 'Well done. You proved you worked for that block. But we still need to check the payment inside.',
       },
       {
         speaker: 'Old Man',
-        text: 'Your block carries TX-01. Before the village accepts it, the transaction facts must be checked.',
+        text: 'Your block carries TX-01. Before the village trusts it, we ask: is this payment honest?',
       },
       {
         speaker: 'You',
-        text: 'So mining finds the block, but verification checks whether the block deserves trust.',
+        text: 'So mining finds the block. Verification checks if the payment inside is real.',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. Next, inspect the balance, the signature, and whether the coins were already spent.',
+        text: 'Exactly. We check three things: enough coins, the real owner approved it, and the coins were not already spent.',
       },
       {
         speaker: 'Old Man',
-        text: 'Come. The second trial is verification.',
+        text: 'Come. The council loves checking things. It is their job after all.',
       },
     ],
   },
@@ -171,27 +174,27 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'Old Man',
-        text: 'This is the Council of Miners. Every mined block comes here before the village accepts it.',
+        text: 'This is the Council of Miners. Every new block comes here before the village trusts it.',
       },
       {
         speaker: 'You',
-        text: 'The banners match the checks you mentioned: balance, signature, double-spend, and agreement.',
+        text: 'So they are the village fact-checkers?',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. A valid hash proves effort, but the council verifies the transaction facts.',
+        text: 'Exactly. Your code proves effort. The council checks whether the payment itself makes sense.',
       },
       {
         speaker: 'Old Man',
-        text: 'Inside, each council member will inspect TX-01 from a different angle.',
+        text: 'Inside, each member checks one simple question about TX-01.',
       },
       {
         speaker: 'You',
-        text: 'Then we only approve the block if the checks agree.',
+        text: 'And if the answers line up, the block can move on.',
       },
       {
         speaker: 'Old Man',
-        text: 'That is the heart of verification. Let us go in.',
+        text: 'That is verification. Less mysterious, more paperwork. In we go.',
       },
     ],
   },
@@ -202,27 +205,27 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'Old Man',
-        text: 'Before TX-01 enters the chain, the council will inspect it from four sides.',
+        text: 'Before TX-01 joins the chain, the council will check it piece by piece.',
       },
       {
         speaker: 'Ledger Warden',
-        text: 'I am the Ledger Warden. I check that the sender actually has enough coins to spend.',
+        text: 'I am the Ledger Warden. I ask: does the sender have enough coins?',
       },
       {
         speaker: 'Seal Sage',
-        text: 'I am the Seal Sage. I verify that the transaction was truly authorized by its owner.',
+        text: 'I am the Seal Sage. I ask: did the real owner approve this payment?',
       },
       {
         speaker: 'Echo Watcher',
-        text: 'I watch for double spends. If those same coins were already used, I reject the transaction.',
+        text: 'I am the Echo Watcher. I ask: are these same coins being spent twice? Rude, if true.',
       },
       {
         speaker: 'Concord Chair',
-        text: 'And I am the Concord Chair. When all our checks agree, the council reaches consensus.',
+        text: 'And I am the Concord Chair. If our answers agree, we call that consensus.',
       },
       {
         speaker: 'You',
-        text: 'So verification is not one guess. It is several checks that must all agree on the same transaction.',
+        text: 'So verification is not guessing. It is checking the payment from a few angles.',
       },
     ],
   },
@@ -235,37 +238,37 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'Ledger Warden',
-        text: 'You read the ledgers well. A block with impossible spending cannot earn trust.',
+        text: 'You read the numbers well. If someone lacks the coins, the payment cannot pass.',
       },
       {
         speaker: 'Seal Sage',
-        text: 'You respected the seals. A transaction must be signed by the rightful owner.',
+        text: 'You checked the seal. A payment needs approval from the real owner.',
       },
       {
         speaker: 'Echo Watcher',
-        text: 'You caught the echoes. The same coins must never be accepted twice.',
+        text: 'You caught the repeats. The same coins cannot buy two things at once. Nice try, coins.',
       },
       {
         speaker: 'Concord Chair',
-        text: 'Consensus is reached. Your block, and the extra candidate blocks you reviewed, are ready for the chain.',
+        text: 'Consensus is reached. We checked the facts and agree your block is ready for the chain.',
       },
       {
         speaker: 'Concord Chair',
-        text: 'You have helped the council keep the village ledger honest. Well done, young miner.',
+        text: 'You helped keep the village record honest. Well done, young miner.',
       },
       {
         speaker: 'Old Man',
-        text: 'My thanks, council. Your guidance turned hard work into something the village can trust.',
+        text: 'My thanks, council. Hard work plus good checking makes a block the village can trust.',
         event: 'oldManEnter',
       },
       {
         speaker: 'You',
-        text: 'So mining found the block, but verification proved it deserved to be accepted.',
+        text: 'So mining made the block, and verification proved the payment inside was okay.',
         event: 'faceForward',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. Now we take that verified block to the forge and learn how it links to the blocks before it.',
+        text: 'Exactly. Now we take that checked block to the forge and attach it to the blocks before it.',
       },
     ],
   },
@@ -277,50 +280,50 @@ const storyBeats: Record<StoryStage, StoryBeat> = {
     lines: [
       {
         speaker: 'You',
-        text: 'The council checked the balance, the sender, and the signature before agreeing.',
+        text: 'The council checked the coins, the owner, and whether anyone tried to spend twice.',
       },
       {
         speaker: 'Old Man',
-        text: 'That agreement is consensus. Many miners look at the same facts and reach the same result.',
+        text: 'When everyone checks the same facts and agrees, that is consensus. Fancy word. Useful word.',
       },
       {
         speaker: 'Old Man',
-        text: 'At the forge, you will link that exact block to history.',
+        text: 'At the forge, you will attach your block to the story that came before it.',
       },
       {
         speaker: 'You',
-        text: 'To the forge, then. I want to see how the blocks hold together.',
+        text: 'To the forge, then. I want to see how blocks hold hands. Block hands. You know what I mean.',
       },
     ],
   },
   afterChain: {
     location: 'forge',
     title: 'Chain Forge',
-    nextScene: 'MainMenuScene',
+    nextScene: 'EndingScene',
     lines: [
       {
         speaker: 'Blacksmith',
-        text: 'There. Your block is linked cleanly. The chain remembers what came before.',
+        text: 'There. Your block is linked cleanly. The chain remembers what came before it.',
       },
       {
         speaker: 'You',
-        text: 'My block is part of the chain now. Every block carried the hash of the one before it.',
+        text: 'My block is part of the chain now. Each block carries a little fingerprint of the block before it.',
       },
       {
         speaker: 'Old Man',
-        text: 'And if anyone tampers with an old block, the later links stop matching.',
+        text: 'And if someone changes an old block, the later fingerprints stop matching.',
       },
       {
         speaker: 'You',
-        text: 'So the chain protects the story of what happened.',
+        text: 'So the chain makes tampering obvious. The story tattles on anyone who edits it.',
       },
       {
         speaker: 'Blacksmith',
-        text: 'Aye. Change one old link, and every later link complains.',
+        text: 'Aye. Change one old link, and every later link complains loudly.',
       },
       {
         speaker: 'Old Man',
-        text: 'Exactly. The reward box is unlocked. Not bad for your first day, miner.',
+        text: 'Exactly. Your first block is mined, checked, and chained. Not bad for a first day.',
       },
     ],
   },
@@ -353,12 +356,12 @@ export default class StoryScene extends Phaser.Scene {
       'mainCharIdle',
       'mainIdleUp',
       'pickaxe',
-      'introInterior',
-      'minesExterior',
-      'councilBuildingOutside',
-      'councilInterior',
+      'introInteriorExtended',
+      'minesExteriorExtended',
+      'councilBuildingOutsideExtended',
+      'councilInteriorExtended',
       'oldManIdle',
-      'blacksmithScene',
+      'blacksmithSceneExtended',
       'blacksmithIdleFront',
       'ledgerWardenIdle',
       'sealSageIdle',
@@ -368,6 +371,9 @@ export default class StoryScene extends Phaser.Scene {
   }
 
   create() {
+    setupResponsiveScene(this);
+    void arduinoBridge.reportScene(`StoryScene:${this.stage}`);
+    saveCheckpoint({ scene: 'StoryScene', data: { stage: this.stage } });
     this.cameras.main.setBackgroundColor('#0f172a');
     createSharedAnimations(this);
     const isIntroInterior = this.beat.location === 'introInterior';
@@ -376,11 +382,13 @@ export default class StoryScene extends Phaser.Scene {
     const isCouncilInterior = this.beat.location === 'council';
     const isForge = this.beat.location === 'forge';
     this.drawLocation(this.beat.location);
+    const layout = getLayout(this);
+    const introActorY = Math.max(604, layout.safeBottom - 58);
 
     const usesTopDialogue = isIntroInterior || isOutsideCave || isCouncilExterior || isCouncilInterior || isForge;
 
     const youngMinerPoint = isIntroInterior
-      ? { x: 180, y: 604 }
+      ? { x: 180, y: introActorY }
       : isOutsideCave || isCouncilExterior
         ? { x: 88, y: 626 }
         : isCouncilInterior
@@ -403,7 +411,7 @@ export default class StoryScene extends Phaser.Scene {
 
     if (shouldShowOldMan && !isForge) {
       const oldManPoint = isIntroInterior
-        ? { x: 424, y: 604 }
+        ? { x: layout.right + 64, y: introActorY }
         : isOutsideCave || isCouncilExterior
           ? { x: 272, y: 626 }
           : isCouncilInterior
@@ -440,6 +448,7 @@ export default class StoryScene extends Phaser.Scene {
     if (this.lineIndex >= this.beat.lines.length) {
       this.cameras.main.fadeOut(220, 8, 13, 24);
       this.time.delayedCall(230, () => {
+        saveCheckpoint({ scene: this.beat.nextScene, data: this.beat.nextData });
         this.scene.start(this.beat.nextScene, this.beat.nextData);
       });
       return;
@@ -449,10 +458,11 @@ export default class StoryScene extends Phaser.Scene {
   }
 
   private createTextBox(placeAtTop = false) {
-    const boxY = placeAtTop ? 112 : 516;
-    const speakerY = placeAtTop ? 44 : 448;
-    const bodyY = placeAtTop ? 76 : 480;
-    const hintY = placeAtTop ? 186 : 590;
+    const layout = getLayout(this);
+    const boxY = placeAtTop ? layout.safeTop + 86 : layout.safeBottom - 86;
+    const speakerY = boxY - 68;
+    const bodyY = boxY - 36;
+    const hintY = boxY + 74;
     const bg = this.add.rectangle(180, boxY, 322, 172, 0x020617, 0.92).setStrokeStyle(3, 0x475569);
     this.speakerText = this.add.text(34, speakerY, '', {
       color: '#86efac',
@@ -499,31 +509,31 @@ export default class StoryScene extends Phaser.Scene {
 
   private drawLocation(location: LocationKey) {
     if (location === 'introInterior') {
-      this.add.image(180, 320, assetKeys.introInterior)
-        .setOrigin(0.5)
-        .setScale(0.26);
-      this.add.rectangle(180, 320, 360, 640, 0x020617, 0.08);
+      addFullscreenRectangle(this, 0x1f2937);
+      addCoverImage(this, assetKeys.introInteriorExtended);
+      const layout = getLayout(this);
+      this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.08);
       return;
     }
 
     if (location === 'outsideCave') {
-      this.add.image(180, 320, assetKeys.minesExterior)
-        .setOrigin(0.5)
-        .setScale(0.262);
-      this.add.rectangle(180, 320, 360, 640, 0x020617, 0.08);
+      addFullscreenRectangle(this, 0x243b2d);
+      addCoverImage(this, assetKeys.minesExteriorExtended);
+      const layout = getLayout(this);
+      this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.08);
       return;
     }
 
     if (location === 'councilExterior') {
-      this.add.image(180, 320, assetKeys.councilBuildingOutside)
-        .setOrigin(0.5)
-        .setScale(0.248);
-      this.add.rectangle(180, 320, 360, 640, 0x020617, 0.14);
+      addFullscreenRectangle(this, 0x172033);
+      addCoverImage(this, assetKeys.councilBuildingOutsideExtended);
+      const layout = getLayout(this);
+      this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.14);
       return;
     }
 
     if (location === 'house') {
-      this.add.rectangle(180, 320, 360, 640, 0x12263a);
+      addFullscreenRectangle(this, 0x12263a);
       this.add.rectangle(180, 226, 288, 120, 0x1e3a5f).setStrokeStyle(3, 0x60a5fa);
       this.add.text(180, 226, 'MINING LESSON', {
         color: '#dbeafe',
@@ -536,7 +546,7 @@ export default class StoryScene extends Phaser.Scene {
         fontSize: '14px',
         fontFamily: 'monospace',
       }).setOrigin(0.5);
-      this.add.text(180, 390, 'Spend effort.\nTry different nonces.\nFind a hash under target.', {
+      this.add.text(180, 390, 'Spend effort.\nTry different numbers.\nFind the right block code.', {
         color: '#cbd5e1',
         fontSize: '14px',
         fontFamily: 'monospace',
@@ -546,7 +556,7 @@ export default class StoryScene extends Phaser.Scene {
     }
 
     if (location === 'cave') {
-      this.add.rectangle(180, 320, 360, 640, 0x131b2c);
+      addFullscreenRectangle(this, 0x131b2c);
       this.add.rectangle(180, 226, 288, 120, 0x2b2344).setStrokeStyle(3, 0xc084fc);
       this.add.text(180, 226, 'VERIFICATION LESSON', {
         color: '#ede9fe',
@@ -559,7 +569,7 @@ export default class StoryScene extends Phaser.Scene {
         fontSize: '14px',
         fontFamily: 'monospace',
       }).setOrigin(0.5);
-      this.add.text(180, 390, 'Sender balance.\nSignature validity.\nNo double spend.', {
+      this.add.text(180, 390, 'Enough coins.\nOwner approved it.\nCoins not spent twice.', {
         color: '#cbd5e1',
         fontSize: '14px',
         fontFamily: 'monospace',
@@ -569,10 +579,10 @@ export default class StoryScene extends Phaser.Scene {
     }
 
     if (location === 'council') {
-      this.add.image(180, 320, assetKeys.councilInterior)
-        .setOrigin(0.5)
-        .setScale(0.2345);
-      this.add.rectangle(180, 320, 360, 640, 0x020617, 0.18);
+      addFullscreenRectangle(this, 0x111827);
+      addCoverImage(this, assetKeys.councilInteriorExtended);
+      const layout = getLayout(this);
+      this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.18);
       this.createCouncilSprite(72, 488, 'Ledger Warden', assetKeys.ledgerWardenIdle, 'ledger-warden-idle', 1.55);
       this.createCouncilSprite(144, 466, 'Seal Sage', assetKeys.sealSageIdle, 'seal-sage-idle', 1.42);
       this.createCouncilSprite(216, 466, 'Echo Watcher', assetKeys.echoWatcherIdle, 'echo-watcher-idle', 1.46);
@@ -580,10 +590,10 @@ export default class StoryScene extends Phaser.Scene {
     }
 
     if (location === 'forge') {
-      this.add.image(180, 320, assetKeys.blacksmithScene)
-        .setOrigin(0.5)
-        .setScale(0.248);
-      this.add.rectangle(180, 320, 360, 640, 0x020617, 0.12);
+      addFullscreenRectangle(this, 0x180f0a);
+      addCoverImage(this, assetKeys.blacksmithSceneExtended);
+      const layout = getLayout(this);
+      this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.12);
     }
   }
 

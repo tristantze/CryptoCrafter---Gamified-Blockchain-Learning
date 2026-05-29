@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
+import { arduinoBridge } from './arduinoBridge';
 import { assetKeys, createSharedAnimations, loadGameAssets } from './assets';
-import { awardReward, progress } from './progress';
+import { awardReward, progress, saveCheckpoint, syncHardwareState } from './progress';
+import { addCoverImage, addFullscreenRectangle, getLayout, setupResponsiveScene } from './responsive';
+import { showRewardBadge } from './rewardBadge';
 
 type CouncilCheckId = 'ledger' | 'seal' | 'echo' | 'concord';
 type Verdict = 'pass' | 'reject';
@@ -91,22 +94,22 @@ const TRANSACTION_CASES: TransactionCase[] = [
     expectedVerdict: 'pass',
     evidence: {
       ledger: {
-        prompt: 'Mina balance: 40 coins. Amount: 25 coins.',
+        prompt: 'Mina has 40 coins. She wants to send 25.\nQuestion: Does she have enough coins?',
         correct: 'pass',
-        success: 'Balance is enough, so this check passes.',
-        failure: 'The sender has enough coins. This should pass.',
+        success: 'Correct. 40 is more than 25, so the balance check passes.',
+        failure: 'Not quite. Mina has enough coins, so this check should pass.',
       },
       seal: {
-        prompt: 'Signature seal matches Mina\'s public key.',
+        prompt: 'The approval seal matches Mina.\nQuestion: Did the real owner approve it?',
         correct: 'pass',
-        success: 'The owner authorized this transaction.',
-        failure: 'The signature matches. This should pass.',
+        success: 'Correct. The seal matches Mina, so the owner approved it.',
+        failure: 'Not quite. The seal matches Mina, so this check should pass.',
       },
       echo: {
-        prompt: 'No earlier transaction used these coins.',
+        prompt: 'No earlier payment used these coins.\nQuestion: Are the coins being spent only once?',
         correct: 'pass',
-        success: 'No double spend was found.',
-        failure: 'The coins were not used before. This should pass.',
+        success: 'Correct. These coins were not used before, so this check passes.',
+        failure: 'Not quite. These coins were not spent before, so this check should pass.',
       },
     },
   },
@@ -119,22 +122,22 @@ const TRANSACTION_CASES: TransactionCase[] = [
     expectedVerdict: 'reject',
     evidence: {
       ledger: {
-        prompt: 'Mina balance: 12 coins. Amount: 25 coins.',
+        prompt: 'Mina has 12 coins. She wants to send 25.\nQuestion: Does she have enough coins?',
         correct: 'reject',
-        success: 'Good catch. The sender cannot afford this transaction.',
-        failure: 'Balance is too low. This must be rejected.',
+        success: 'Correct. Mina only has 12 coins, so a 25-coin payment must fail.',
+        failure: 'Not quite. Mina does not have enough coins, so this check should reject.',
       },
       seal: {
-        prompt: 'Signature seal matches Mina\'s public key.',
+        prompt: 'The approval seal matches Mina.\nQuestion: Did the real owner approve it?',
         correct: 'pass',
-        success: 'Signature is valid, but one bad check can still reject the transaction.',
-        failure: 'The signature is valid. This check should pass.',
+        success: 'Correct. The seal is fine, even though another check may still fail.',
+        failure: 'Not quite. The owner approved this payment, so this check should pass.',
       },
       echo: {
-        prompt: 'No earlier transaction used these coins.',
+        prompt: 'No earlier payment used these coins.\nQuestion: Are the coins being spent only once?',
         correct: 'pass',
-        success: 'No double spend was found.',
-        failure: 'No double spend appears here. This check should pass.',
+        success: 'Correct. These coins were not used before, so this check passes.',
+        failure: 'Not quite. No repeat spending appears here, so this check should pass.',
       },
     },
   },
@@ -147,50 +150,50 @@ const TRANSACTION_CASES: TransactionCase[] = [
     expectedVerdict: 'reject',
     evidence: {
       ledger: {
-        prompt: 'Mina balance: 40 coins. Amount: 10 coins.',
+        prompt: 'Mina has 40 coins. She wants to send 10.\nQuestion: Does she have enough coins?',
         correct: 'pass',
-        success: 'Balance is enough.',
-        failure: 'The sender can afford this. This check should pass.',
+        success: 'Correct. Mina can afford 10 coins, so the balance check passes.',
+        failure: 'Not quite. Mina can afford this payment, so this check should pass.',
       },
       seal: {
-        prompt: 'Signature seal belongs to Rowan, not Mina.',
+        prompt: 'The approval seal belongs to Rowan, not Mina.\nQuestion: Did Mina approve this payment?',
         correct: 'reject',
-        success: 'Correct. The wrong signature means no authorization.',
-        failure: 'Wrong signer. This must be rejected.',
+        success: 'Correct. Wrong owner, wrong seal. This check must reject.',
+        failure: 'Not quite. Rowan approved it, not Mina, so this check should reject.',
       },
       echo: {
-        prompt: 'These coins already appeared in TX-00.',
+        prompt: 'These same coins already appeared in TX-00.\nQuestion: Are the coins being spent only once?',
         correct: 'reject',
-        success: 'Correct. Reusing the same coins would be a double spend.',
-        failure: 'The coins were already spent. This must be rejected.',
+        success: 'Correct. The coins were already used, so this is double spending.',
+        failure: 'Not quite. These coins were already spent, so this check should reject.',
       },
     },
   },
 ];
 
 const MEMBER_INTROS: Record<CouncilCheckId, string> = {
-  ledger: 'I keep the ledger. If the sender lacks enough coins, the transaction cannot stand.',
-  seal: 'I read the seal. A valid signature proves the owner truly authorized the transfer.',
-  echo: 'I listen for echoes. If the same coins appear twice, one transaction must be false.',
-  concord: 'I wait for agreement. Consensus only comes after the facts line up.',
+  ledger: 'I check the wallet. If the sender does not have enough coins, the payment fails.',
+  seal: 'I check the approval seal. The real owner must approve the payment.',
+  echo: 'I check for repeats. Spending the same coins twice is not clever. It is rejected.',
+  concord: 'I check the final answer. If every check lines up, we agree. That is consensus.',
 };
 
 const CLOSING_DIALOGUE: DialogueLine[] = [
   {
     speaker: 'Ledger Warden',
-    text: 'The balances have been tested. No accepted transaction spent coins it did not own.',
+    text: 'The coin counts are checked. No one bought something with coins they did not have.',
   },
   {
     speaker: 'Seal Sage',
-    text: 'The signatures have spoken. Authorization separates a true transfer from an impostor.',
+    text: 'The approval seals are checked. Real owners said yes; impostors got shown the door.',
   },
   {
     speaker: 'Echo Watcher',
-    text: 'No echo slipped through. Coins cannot be accepted twice.',
+    text: 'No repeat spending slipped through. The same coins cannot pay twice.',
   },
   {
     speaker: 'Concord Chair',
-    text: 'The council agrees. Your block may carry verified transactions into the chain.',
+    text: 'The council agrees. Your block may carry these checked payments into the chain.',
   },
 ];
 
@@ -236,16 +239,20 @@ export default class VerificationScene extends Phaser.Scene {
 
   preload() {
     loadGameAssets(this, [
-      'councilInterior',
+      'councilInteriorExtended',
       'mainIdleUp',
       'ledgerWardenIdle',
       'sealSageIdle',
       'echoWatcherIdle',
       'concordChairIdle',
+      'verificationBadge',
     ]);
   }
 
   create() {
+    setupResponsiveScene(this);
+    void arduinoBridge.reportScene('VerificationScene');
+    saveCheckpoint({ scene: 'VerificationScene' });
     this.cameras.main.setBackgroundColor('#0f172a');
     createSharedAnimations(this);
     this.worldLayer = this.add.container(0, 0).setDepth(0);
@@ -262,11 +269,11 @@ export default class VerificationScene extends Phaser.Scene {
   }
 
   private drawChamber() {
-    const background = this.add.image(180, 320, assetKeys.councilInterior)
-      .setOrigin(0.5)
-      .setScale(0.2345);
-    const shade = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.16);
-    this.worldLayer?.add([background, shade]);
+    const base = addFullscreenRectangle(this, 0x0f172a);
+    const background = addCoverImage(this, assetKeys.councilInteriorExtended);
+    const layout = getLayout(this);
+    const shade = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.16);
+    this.worldLayer?.add([base, background, shade]);
 
   }
 
@@ -308,35 +315,35 @@ export default class VerificationScene extends Phaser.Scene {
   }
 
   private drawCheckPanel() {
-    const bg = this.add.rectangle(180, 112, 326, 160, 0x020617, 0.94).setStrokeStyle(3, 0x475569);
-    this.transactionText = this.add.text(180, 52, '', {
+    const bg = this.add.rectangle(180, 124, 326, 184, 0x020617, 0.94).setStrokeStyle(3, 0x475569);
+    this.transactionText = this.add.text(180, 42, '', {
       color: '#dbeafe',
       fontSize: '10px',
       fontFamily: 'monospace',
       align: 'center',
       lineSpacing: 5,
     }).setOrigin(0.5);
-    this.speakerText = this.add.text(28, 84, '', {
+    this.speakerText = this.add.text(28, 88, '', {
       color: '#86efac',
       fontSize: '12px',
       fontFamily: 'monospace',
     });
-    this.bodyText = this.add.text(28, 106, '', {
+    this.bodyText = this.add.text(28, 110, '', {
       color: '#e2e8f0',
       fontSize: '10px',
       fontFamily: 'monospace',
       lineSpacing: 4,
       wordWrap: { width: 300 },
     });
-    this.statusText = this.add.text(286, 84, '', {
+    this.statusText = this.add.text(286, 88, '', {
       color: '#facc15',
       fontSize: '10px',
       fontFamily: 'monospace',
       align: 'center',
     }).setOrigin(0.5, 0);
 
-    this.passButton = this.createVerdictButton(132, 154, 'PASS', 0x22c55e, 'pass');
-    this.rejectButton = this.createVerdictButton(228, 154, 'REJECT', 0xef4444, 'reject');
+    this.passButton = this.createVerdictButton(118, 184, 'APPROVE', 0x22c55e, 'pass');
+    this.rejectButton = this.createVerdictButton(242, 184, 'REJECT', 0xef4444, 'reject');
     this.uiLayer?.add([
       bg,
       this.transactionText,
@@ -349,14 +356,14 @@ export default class VerificationScene extends Phaser.Scene {
   }
 
   private createVerdictButton(x: number, y: number, labelText: string, color: number, verdict: Verdict) {
-    const bg = this.add.rectangle(0, 0, 86, 34, color).setStrokeStyle(2, 0xffffff, 0.45);
+    const bg = this.add.rectangle(0, 0, 108, 34, color).setStrokeStyle(2, 0xffffff, 0.45);
     const label = this.add.text(0, 0, labelText, {
       color: '#020617',
       fontSize: '11px',
       fontFamily: 'monospace',
     }).setOrigin(0.5);
     const button = this.add.container(x, y, [bg, label]);
-    button.setSize(86, 34).setInteractive({ useHandCursor: true });
+    button.setSize(108, 34).setInteractive({ useHandCursor: true });
     button.on('pointerdown', () => {
       if (!this.isClosingDialogue && !this.dialogueOverlay && !this.isIntroTutorialActive) this.answerSelected(verdict);
     });
@@ -418,13 +425,16 @@ export default class VerificationScene extends Phaser.Scene {
     if (verdict !== txCase.expectedVerdict) {
       this.mistakes += 1;
       this.cameras.main.shake(140, 0.005);
-      this.showFeedback(`The final verdict should ${txCase.expectedVerdict.toUpperCase()}. Review the failed check.`, '#fecaca');
+      const hint = txCase.expectedVerdict === 'pass'
+        ? 'all checks passed, so the payment can join the block.'
+        : 'at least one check failed, so the payment must stay out.';
+      this.showFeedback(`Not quite. ${txCase.id} should ${this.verdictLabel(txCase.expectedVerdict)} because ${hint}`, '#fecaca');
       return;
     }
 
     this.completedChecks.add('concord');
     this.markMemberComplete(this.selectedMember);
-    this.showFeedback(`Consensus reached: ${txCase.id} will ${verdict.toUpperCase()}.`, '#86efac');
+    this.showFeedback(`Correct. Consensus reached: ${txCase.id} will ${this.verdictLabel(verdict)}.`, '#86efac');
     this.time.delayedCall(820, () => this.advanceCase());
   }
 
@@ -443,14 +453,19 @@ export default class VerificationScene extends Phaser.Scene {
   private renderPanel() {
     const txCase = this.currentCase();
     this.transactionText?.setText([
-      `Case ${this.caseIndex + 1}/${TRANSACTION_CASES.length} - ${txCase.id}`,
-      `${txCase.summary} | Mistakes: ${this.mistakes}`,
+      `Case ${this.caseIndex + 1}/${TRANSACTION_CASES.length}: ${txCase.id}`,
+      `${txCase.sender} sends ${txCase.amount} coins to ${txCase.receiver}`,
+      `Mistakes: ${this.mistakes}`,
     ]);
 
     const isDone = this.completedChecks.has(this.selectedMember.id);
     if (this.selectedMember.id === 'concord') {
       this.speakerText?.setText(`${this.selectedMember.name} - ${this.selectedMember.title}`);
-      this.bodyText?.setText(`Specialist checks complete.\nShould ${txCase.id} be accepted by consensus?`);
+      this.bodyText?.setText([
+        'Ledger, Seal, and Echo have reported.',
+        `Final question: should ${txCase.id} join the block?`,
+        'Approve only if every important check passed.',
+      ].join('\n'));
       this.statusText?.setText(isDone ? 'DONE' : 'FINAL');
       this.statusText?.setColor(isDone ? '#86efac' : '#facc15');
       this.setButtonsEnabled(!isDone);
@@ -459,7 +474,7 @@ export default class VerificationScene extends Phaser.Scene {
 
     const evidence = txCase.evidence[this.selectedMember.id as Exclude<CouncilCheckId, 'concord'>];
     this.speakerText?.setText(`${this.selectedMember.name} - ${this.selectedMember.title}`);
-    this.bodyText?.setText(`${evidence.prompt}\nShould this check pass or reject?`);
+    this.bodyText?.setText(`${evidence.prompt}\nChoose APPROVE if this check is okay.`);
     this.statusText?.setText(isDone ? 'DONE' : 'CHECK');
     this.statusText?.setColor(isDone ? '#86efac' : '#facc15');
     this.setButtonsEnabled(!isDone);
@@ -510,7 +525,7 @@ export default class VerificationScene extends Phaser.Scene {
   private showLockedConsensus() {
     this.focusMember('concord');
     this.speakerText?.setText('Concord Chair - Final Verdict');
-    this.bodyText?.setText('The chair waits until Ledger, Seal, and Echo have all checked the evidence.');
+    this.bodyText?.setText('The chair waits until Ledger, Seal, and Echo have each answered their question.');
     this.statusText?.setText('LOCKED');
     this.statusText?.setColor('#facc15');
     this.setButtonsEnabled(false);
@@ -524,6 +539,10 @@ export default class VerificationScene extends Phaser.Scene {
     return TRANSACTION_CASES[this.caseIndex];
   }
 
+  private verdictLabel(verdict: Verdict) {
+    return verdict === 'pass' ? 'APPROVE' : 'REJECT';
+  }
+
   private shortName(member: CouncilMember) {
     if (member.id === 'ledger') return 'Ledger';
     if (member.id === 'seal') return 'Seal';
@@ -532,60 +551,65 @@ export default class VerificationScene extends Phaser.Scene {
   }
 
   private playIntroZoom() {
-    if (!this.worldLayer) return;
-
-    this.worldLayer.setScale(1.22);
-    this.worldLayer.setPosition(-40, -104);
+    this.worldLayer?.setScale(1);
+    this.worldLayer?.setPosition(0, 0);
     this.tweens.add({
-      targets: this.worldLayer,
-      scaleX: 1,
-      scaleY: 1,
-      x: 0,
-      y: 0,
-      duration: 1050,
+      targets: this.uiLayer,
+      alpha: 1,
+      duration: 260,
       ease: 'Sine.easeInOut',
-      onComplete: () => {
-        this.tweens.add({
-          targets: this.uiLayer,
-          alpha: 1,
-          duration: 260,
-          ease: 'Sine.easeOut',
-          onComplete: () => this.showOpeningTutorial(),
-        });
-      },
+      onComplete: () => this.showOpeningTutorial(),
     });
   }
 
   private showOpeningTutorial() {
-    this.showDialogue(
-      'Council Verification',
+    const concord = COUNCIL_MEMBERS.find((member) => member.id === 'concord');
+    this.showDialogueSequence(
       [
-        'There are 3 transaction rounds.',
-        'For each round, ask Ledger, Seal, and Echo to inspect the evidence.',
-        'Choose PASS or REJECT for each specialist check, then let Concord decide the final result.',
-        'Think like a validator: one bad check can reject the whole transaction.',
-      ].join('\n'),
-      undefined,
+        {
+          speaker: 'Council Verification',
+          text: 'You will inspect 3 payments. For each one, read the case file at the top.',
+        },
+        {
+          speaker: 'Council Verification',
+          text: 'Each council member asks one question. Choose APPROVE if that check looks okay.',
+        },
+        {
+          speaker: 'Council Verification',
+          text: 'Choose REJECT if the check finds a problem. One bad check can keep a payment out of the block.',
+        },
+        {
+          speaker: 'Concord Chair',
+          text: 'Your mined block needs clean payments inside it. We will practice with a few case files first.',
+          member: concord,
+        },
+        {
+          speaker: 'Concord Chair',
+          text: 'Do not guess. Read the question, check the facts, then approve or reject. The paperwork can smell fear.',
+          member: concord,
+        },
+      ],
       () => {
-        const concord = COUNCIL_MEMBERS.find((member) => member.id === 'concord');
-        this.showDialogue(
-          'Concord Chair',
-          'Your mined block is not alone, apprentice. The council has received several candidate blocks from nearby miners.',
-          concord,
-          () => {
-            this.showDialogue(
-              'Concord Chair',
-              'Since you are here, why do we not review those blocks together? Verify each one carefully, so only valid transactions are allowed into the chain.',
-              concord,
-              () => {
-                this.isIntroTutorialActive = false;
-                this.selectMember('ledger');
-              },
-            );
-          },
-        );
+        this.isIntroTutorialActive = false;
+        this.selectMember('ledger');
       },
     );
+  }
+
+  private showDialogueSequence(
+    lines: Array<{ speaker: string; text: string; member?: CouncilMember }>,
+    onComplete: () => void,
+    index = 0,
+  ) {
+    const line = lines[index];
+    if (!line) {
+      onComplete();
+      return;
+    }
+
+    this.showDialogue(line.speaker, line.text, line.member, () => {
+      this.showDialogueSequence(lines, onComplete, index + 1);
+    });
   }
 
   private focusMember(selectedId: CouncilCheckId) {
@@ -604,6 +628,8 @@ export default class VerificationScene extends Phaser.Scene {
     progress.block.status = 'verified';
     progress.verificationComplete = true;
     awardReward('Council Stamp');
+    syncHardwareState();
+    saveCheckpoint({ scene: 'StoryScene', data: { stage: 'councilResult' } });
     this.cameras.main.flash(160, 34, 197, 94);
     this.time.delayedCall(360, () => this.startClosingDialogue());
   }
@@ -632,8 +658,21 @@ export default class VerificationScene extends Phaser.Scene {
     this.closingDialogueIndex += 1;
     if (this.closingDialogueIndex >= CLOSING_DIALOGUE.length) {
       this.input.off('pointerdown', this.advanceClosingDialogue, this);
-      this.cameras.main.fadeOut(220, 8, 13, 24);
-      this.time.delayedCall(230, () => this.scene.start('StoryScene', { stage: 'councilResult' }));
+      this.dialogueOverlay?.destroy(true);
+      this.dialogueOverlay = undefined;
+      showRewardBadge(
+        this,
+        assetKeys.verificationBadge,
+        'Verification Badge Earned',
+        'You checked the payments before they joined the chain.',
+        () => {
+          this.cameras.main.fadeOut(220, 8, 13, 24);
+          this.time.delayedCall(230, () => {
+            saveCheckpoint({ scene: 'StoryScene', data: { stage: 'councilResult' } });
+            this.scene.start('StoryScene', { stage: 'councilResult' });
+          });
+        },
+      );
       return;
     }
 
@@ -651,30 +690,32 @@ export default class VerificationScene extends Phaser.Scene {
     this.dialogueOverlay?.destroy(true);
     this.setButtonsEnabled(false);
 
-    const dim = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.56);
+    const layout = getLayout(this);
+    const boxY = layout.safeBottom - 86;
+    const dim = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.56);
     const portraitSide = member && (member.id === 'echo' || member.id === 'concord') ? 'right' : 'left';
     const portraitX = portraitSide === 'left' ? 88 : 272;
     const portrait = member
-      ? this.add.sprite(portraitX, 486, member.texture, 0)
+      ? this.add.sprite(portraitX, boxY - 62, member.texture, 0)
         .setOrigin(0.5, 1)
         .setScale(4.2)
         .play(member.animation)
       : undefined;
 
-    const box = this.add.rectangle(180, 548, 334, 164, 0x020617, 0.96).setStrokeStyle(3, 0x94a3b8);
-    const nameText = this.add.text(30, 482, speaker, {
+    const box = this.add.rectangle(180, boxY, 334, 164, 0x020617, 0.96).setStrokeStyle(3, 0x94a3b8);
+    const nameText = this.add.text(30, boxY - 66, speaker, {
       color: '#fde68a',
       fontSize: '14px',
       fontFamily: 'monospace',
     });
-    const body = this.add.text(30, 512, text, {
+    const body = this.add.text(30, boxY - 36, text, {
       color: '#e2e8f0',
       fontSize: '13px',
       fontFamily: 'monospace',
       lineSpacing: 7,
       wordWrap: { width: 300 },
     });
-    const hint = this.add.text(180, 614, 'Tap to continue', {
+    const hint = this.add.text(180, boxY + 66, 'Tap to continue', {
       color: '#64748b',
       fontSize: '10px',
       fontFamily: 'monospace',

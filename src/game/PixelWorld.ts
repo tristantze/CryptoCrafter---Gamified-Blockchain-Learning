@@ -518,7 +518,7 @@ export default class PixelWorld extends Phaser.Scene {
     this.createTalkSpot(422, 284, 'Hash signs are tiny fingerprints. Change the data, and the fingerprint changes too.');
     this.drawVillager(422, 254, 0xf59e0b, 'Hash Clerk');
 
-    this.createTalkSpot(556, 600, 'The reward box opens only when your block is mined, verified, and chained.');
+    this.createTalkSpot(556, 600, 'The Prize Chest opens only when your block is mined, verified, and chained.');
     this.drawRewardBox(556, 568);
 
     this.createSign(338, 738, 'Block Job Board', 'Today: mine one block, verify TX-01, link it into the village chain.');
@@ -569,7 +569,7 @@ export default class PixelWorld extends Phaser.Scene {
       .setScale(CRATE_SCALE)
       .setAngle(progress.boxUnlocked ? -16 : 0)
       .setDepth(y + 9);
-    this.add.text(x, y + 38, progress.boxUnlocked ? 'Box Open' : 'Reward Box', {
+    this.add.text(x, y + 38, progress.boxUnlocked ? 'Chest Open' : 'Prize Chest', {
       color: '#052e16',
       fontSize: '8px',
       fontFamily: 'monospace',

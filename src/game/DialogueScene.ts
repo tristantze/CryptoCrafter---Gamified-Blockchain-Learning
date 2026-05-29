@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { addFullscreenRectangle, getLayout, setupResponsiveScene } from './responsive';
 
 interface DialogueData {
   lines?: string[];
@@ -25,6 +26,7 @@ export default class DialogueScene extends Phaser.Scene {
   }
 
   create() {
+    setupResponsiveScene(this);
     this.cameras.main.setBackgroundColor('#0f172a');
     this.ensureTextures();
     this.drawScene();
@@ -37,7 +39,9 @@ export default class DialogueScene extends Phaser.Scene {
   }
 
   private drawScene() {
-    this.add.rectangle(180, 320, 330, 540, 0x172033).setStrokeStyle(4, 0x334155);
+    const layout = getLayout(this);
+    addFullscreenRectangle(this, 0x0f172a);
+    this.add.rectangle(180, layout.centerY, 330, Math.max(540, layout.height - 80), 0x172033).setStrokeStyle(4, 0x334155);
     this.add.rectangle(180, 132, 260, 90, 0x111827).setStrokeStyle(2, 0x38bdf8, 0.4);
     this.add.sprite(180, 132, 'hero-chip').setScale(2.6);
 

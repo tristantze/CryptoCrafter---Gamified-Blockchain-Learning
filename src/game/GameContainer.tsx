@@ -7,16 +7,14 @@ import StoryScene from './StoryScene';
 import MiningScene from './MiningScene';
 import VerificationScene from './VerificationScene';
 import ChainScene from './ChainScene';
+import EndingScene from './EndingScene';
+import { loadSavedGame } from './progress';
+import { BASE_GAME_HEIGHT, BASE_GAME_WIDTH } from './responsive';
 
-const GAME_WIDTH = 360;
-const GAME_HEIGHT = 640;
-
-function fitIntegerScale() {
-  const scale = Math.max(1, Math.floor(Math.min(window.innerWidth / GAME_WIDTH, window.innerHeight / GAME_HEIGHT)));
-
+function viewportSize(host: HTMLElement) {
   return {
-    width: GAME_WIDTH * scale,
-    height: GAME_HEIGHT * scale,
+    width: Math.max(BASE_GAME_WIDTH, Math.round(host.clientWidth || window.innerWidth || BASE_GAME_WIDTH)),
+    height: Math.max(BASE_GAME_HEIGHT, Math.round(host.clientHeight || window.innerHeight || BASE_GAME_HEIGHT)),
   };
 }
 
@@ -27,6 +25,8 @@ export function GameContainer() {
   useEffect(() => {
     if (!hostRef.current || gameRef.current) return;
 
+    loadSavedGame();
+
     const sceneMap = {
       MainMenuScene,
       StoryScene,
@@ -34,6 +34,7 @@ export function GameContainer() {
       MiningScene,
       VerificationScene,
       ChainScene,
+      EndingScene,
     } as const;
 
     const sceneOrder = [
@@ -43,6 +44,7 @@ export function GameContainer() {
       MiningScene,
       VerificationScene,
       ChainScene,
+      EndingScene,
     ];
     const params = new URLSearchParams(window.location.search);
     const bootSceneName = params.get('scene') as keyof typeof sceneMap | null;
@@ -51,10 +53,11 @@ export function GameContainer() {
       ? [bootScene, ...sceneOrder.filter((scene) => scene !== bootScene)]
       : sceneOrder;
 
+    const initialSize = viewportSize(hostRef.current);
     const config = {
       type: Phaser.AUTO,
-      width: GAME_WIDTH,
-      height: GAME_HEIGHT,
+      width: initialSize.width,
+      height: initialSize.height,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
       parent: hostRef.current,
       backgroundColor: '#172033',
@@ -66,8 +69,8 @@ export function GameContainer() {
         roundPixels: true,
       },
       scale: {
-        mode: Phaser.Scale.NONE,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.NO_CENTER,
       },
       physics: {
         default: 'arcade',
@@ -79,20 +82,21 @@ export function GameContainer() {
     } satisfies Phaser.Types.Core.GameConfig & { resolution: number };
 
     gameRef.current = new Phaser.Game(config);
-    const resizeCanvas = () => {
-      const nextSize = fitIntegerScale();
-      const canvas = gameRef.current?.canvas;
-      if (!canvas) return;
-
-      canvas.style.width = `${nextSize.width}px`;
-      canvas.style.height = `${nextSize.height}px`;
+    const refreshScale = () => {
+      window.setTimeout(() => {
+        if (!hostRef.current || !gameRef.current) return;
+        const nextSize = viewportSize(hostRef.current);
+        gameRef.current.scale.resize(nextSize.width, nextSize.height);
+        gameRef.current.scale.refresh();
+      }, 60);
     };
 
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', refreshScale);
+    window.addEventListener('orientationchange', refreshScale);
 
     return () => {
-      window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('resize', refreshScale);
+      window.removeEventListener('orientationchange', refreshScale);
       gameRef.current?.destroy(true);
       gameRef.current = null;
     };

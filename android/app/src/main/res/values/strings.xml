@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CryptoCrafter</string>
+    <string name="title_activity_main">CryptoCrafter</string>
+    <string name="package_name">com.cryptocrafter.app</string>
+    <string name="custom_url_scheme">com.cryptocrafter.app</string>
+</resources>

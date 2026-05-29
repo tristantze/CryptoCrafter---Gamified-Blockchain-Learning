@@ -72,20 +72,50 @@ const assets = {
     type: 'image',
     path: '/assets/blacksmith_scene.png',
   },
+  blacksmithSceneExtended: {
+    key: 'story.blacksmith.scene.extended',
+    type: 'image',
+    path: '/assets/blacksmith_scene_extended.png',
+  },
   anvilSurface: {
     key: 'forge.anvil.surface',
     type: 'image',
     path: '/assets/anvil_surface.png',
+  },
+  anvilSurfaceExtended: {
+    key: 'forge.anvil.surface.extended',
+    type: 'image',
+    path: '/assets/anvil_surface_extended.png',
   },
   cryptocrafterLogo: {
     key: 'ui.cryptocrafter.logo',
     type: 'image',
     path: '/assets/cryptocrafter_logo.png',
   },
+  miningBadge: {
+    key: 'reward.badge.mining',
+    type: 'image',
+    path: '/assets/mining_badge.png',
+  },
+  verificationBadge: {
+    key: 'reward.badge.verification',
+    type: 'image',
+    path: '/assets/verification_badge.png',
+  },
+  chainBadge: {
+    key: 'reward.badge.chain',
+    type: 'image',
+    path: '/assets/chain_badge.png',
+  },
   mainMenuBackground: {
     key: 'ui.main_menu.background',
     type: 'image',
     path: '/assets/main_menu_bg.png',
+  },
+  mainMenuBackgroundExtended: {
+    key: 'ui.main_menu.background.extended',
+    type: 'image',
+    path: '/assets/main_menu_bg_extended.png',
   },
   blacksmithSmashBack: {
     key: 'characters.blacksmith.smash.back',
@@ -104,20 +134,40 @@ const assets = {
     type: 'image',
     path: '/assets/intro_interior.png',
   },
+  introInteriorExtended: {
+    key: 'story.intro.interior.extended',
+    type: 'image',
+    path: '/assets/intro_interior_extended.png',
+  },
   minesExterior: {
     key: 'story.mines.exterior',
     type: 'image',
     path: '/assets/mines_exterior.png',
+  },
+  minesExteriorExtended: {
+    key: 'story.mines.exterior.extended',
+    type: 'image',
+    path: '/assets/mines_exterior_extended.png',
   },
   councilBuildingOutside: {
     key: 'story.council.outside',
     type: 'image',
     path: '/assets/council_building_outside.png',
   },
+  councilBuildingOutsideExtended: {
+    key: 'story.council.outside.extended',
+    type: 'image',
+    path: '/assets/council_building_outside_extended.png',
+  },
   councilInterior: {
     key: 'verification.council.interior',
     type: 'image',
     path: '/assets/council_interior.png',
+  },
+  councilInteriorExtended: {
+    key: 'verification.council.interior.extended',
+    type: 'image',
+    path: '/assets/council_interior_extended.png',
   },
   councilDeskLayer: {
     key: 'verification.council.desk_layer',

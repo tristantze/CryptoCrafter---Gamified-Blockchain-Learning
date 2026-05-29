@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
+import { arduinoBridge } from './arduinoBridge';
 import { assetKeys, createSharedAnimations, loadGameAssets } from './assets';
-import { awardReward, progress } from './progress';
+import { awardReward, progress, saveCheckpoint, syncHardwareState } from './progress';
+import { addFullscreenRectangle, getLayout, setupResponsiveScene } from './responsive';
+import { showRewardBadge } from './rewardBadge';
 
 interface MineBlock {
   hash: string;
@@ -66,6 +69,7 @@ export default class MiningScene extends Phaser.Scene {
   private finalHash = '';
   private activeBlock?: MineBlock;
   private isChargingEnergy = false;
+  private movementPaused = false;
   private postMiningPanel?: Phaser.GameObjects.Container;
   private postMiningLineIndex = 0;
 
@@ -83,14 +87,18 @@ export default class MiningScene extends Phaser.Scene {
     this.finalHash = '';
     this.activeBlock = undefined;
     this.isChargingEnergy = false;
+    this.movementPaused = false;
     this.postMiningLineIndex = 0;
   }
 
   preload() {
-    loadGameAssets(this, ['mainCharIdle', 'mainCharPickSwing', 'commonOre', 'cryptoOre', 'caveBackground', 'oldManIdle']);
+    loadGameAssets(this, ['mainCharIdle', 'mainCharPickSwing', 'commonOre', 'cryptoOre', 'caveBackground', 'oldManIdle', 'miningBadge']);
   }
 
   create() {
+    setupResponsiveScene(this);
+    void arduinoBridge.reportScene('MiningScene');
+    saveCheckpoint({ scene: 'MiningScene' });
     this.cameras.main.setBackgroundColor('#111827');
     createSharedAnimations(this);
     this.drawFrame();
@@ -139,11 +147,22 @@ export default class MiningScene extends Phaser.Scene {
   }
 
   private drawFrame() {
+    const layout = getLayout(this);
+    addFullscreenRectangle(this, 0x111827);
+    this.add.tileSprite(
+      layout.centerX,
+      layout.centerY,
+      layout.width,
+      layout.height,
+      assetKeys.caveBackground,
+    )
+      .setAlpha(0.55)
+      .setTileScale(0.59, 0.59);
     this.add.image(180, 320, assetKeys.caveBackground)
       .setOrigin(0.5)
       .setScale(0.59);
-    this.add.rectangle(180, 320, 360, 640, 0x020617, 0.58);
-    this.add.rectangle(180, 320, 340, 612, 0x020617, 0.18).setStrokeStyle(2, 0x334155, 0.5);
+    this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.62);
+    this.add.rectangle(180, layout.centerY, 340, Math.max(612, layout.height - 28), 0x020617, 0.18).setStrokeStyle(2, 0x334155, 0.5);
 
     this.add.rectangle(180, 74, 328, 116, 0x020617, 0.78).setStrokeStyle(2, 0x475569);
     this.add.text(28, 26, 'Mining: proof of work', {
@@ -191,8 +210,9 @@ export default class MiningScene extends Phaser.Scene {
       .play('main-char-idle');
     this.pick = this.add.container(180, 556, [this.minerSprite]).setDepth(4);
 
-    this.add.rectangle(180, 622, 318, 28, 0x020617, 0.78).setStrokeStyle(2, 0x334155);
-    this.add.text(180, 622, 'Hold empty cave space to charge energy.', {
+    const hintY = Math.min(622, layout.safeBottom - 8);
+    this.add.rectangle(180, hintY, 318, 28, 0x020617, 0.78).setStrokeStyle(2, 0x334155);
+    this.add.text(180, hintY, 'Hold empty cave space to charge energy.', {
       color: '#cbd5e1',
       fontSize: '11px',
       fontFamily: 'monospace',
@@ -204,6 +224,8 @@ export default class MiningScene extends Phaser.Scene {
   private generateBlocks() {
     this.blocks.forEach((block) => block.container.destroy(true));
     this.blocks = [];
+    this.activeBlock = undefined;
+    this.movementPaused = false;
 
     const round = this.currentRound();
     const correctIndex = Phaser.Math.Between(0, 8);
@@ -250,7 +272,7 @@ export default class MiningScene extends Phaser.Scene {
   }
 
   private shuffleBlocks() {
-    if (this.solved) return;
+    if (this.solved || this.activeBlock || this.movementPaused) return;
 
     Phaser.Utils.Array.Shuffle(this.blocks);
     this.blocks.forEach((block, index) => {
@@ -345,6 +367,8 @@ export default class MiningScene extends Phaser.Scene {
     progress.block.status = 'mined';
     progress.miningComplete = true;
     awardReward('Miner Badge');
+    syncHardwareState();
+    saveCheckpoint({ scene: 'StoryScene', data: { stage: 'councilExterior' } });
     this.shuffleTimer?.remove(false);
     this.targetText.setText(`Target met: ${this.finalHash}`);
     this.showMessage('Proof found: Miner Badge earned', '#86efac');
@@ -419,12 +443,14 @@ export default class MiningScene extends Phaser.Scene {
   }
 
   private pauseHashMovement() {
+    this.movementPaused = true;
     if (this.shuffleTimer) this.shuffleTimer.paused = true;
     this.blocks.forEach((block) => this.tweens.killTweensOf(block.container));
   }
 
   private resumeHashMovement() {
     if (this.solved) return;
+    this.movementPaused = false;
     if (this.shuffleTimer) this.shuffleTimer.paused = false;
   }
 
@@ -491,8 +517,19 @@ export default class MiningScene extends Phaser.Scene {
     if (this.postMiningLineIndex >= POST_MINING_LINES.length) {
       this.input.off('pointerdown', this.advancePostMiningDialogue, this);
       this.postMiningPanel?.destroy(true);
-      this.cameras.main.fadeOut(220, 8, 13, 24);
-      this.time.delayedCall(230, () => this.scene.start('StoryScene', { stage: 'councilExterior' }));
+      showRewardBadge(
+        this,
+        assetKeys.miningBadge,
+        'Mining Badge Earned',
+        'You proved the work behind your block.',
+        () => {
+          this.cameras.main.fadeOut(220, 8, 13, 24);
+          this.time.delayedCall(230, () => {
+            saveCheckpoint({ scene: 'StoryScene', data: { stage: 'councilExterior' } });
+            this.scene.start('StoryScene', { stage: 'councilExterior' });
+          });
+        },
+      );
       return;
     }
 
@@ -503,25 +540,27 @@ export default class MiningScene extends Phaser.Scene {
     const line = POST_MINING_LINES[this.postMiningLineIndex];
     this.postMiningPanel?.destroy(true);
 
-    const dim = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.48);
-    const portrait = this.add.sprite(line.speaker === 'You' ? 84 : 276, 492, line.speaker === 'You' ? assetKeys.mainCharIdle : assetKeys.oldManIdle, 0)
+    const layout = getLayout(this);
+    const boxY = layout.safeBottom - 86;
+    const dim = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.48);
+    const portrait = this.add.sprite(line.speaker === 'You' ? 84 : 276, boxY - 56, line.speaker === 'You' ? assetKeys.mainCharIdle : assetKeys.oldManIdle, 0)
       .setOrigin(0.5, 1)
       .setScale(line.speaker === 'You' ? 4.25 : 4.35)
       .play(line.speaker === 'You' ? 'main-char-idle' : 'old-man-idle');
-    const box = this.add.rectangle(180, 548, 334, 164, 0x020617, 0.96).setStrokeStyle(3, 0x38bdf8);
-    const nameText = this.add.text(30, 482, line.speaker, {
+    const box = this.add.rectangle(180, boxY, 334, 164, 0x020617, 0.96).setStrokeStyle(3, 0x38bdf8);
+    const nameText = this.add.text(30, boxY - 66, line.speaker, {
       color: line.speaker === 'You' ? '#86efac' : '#facc15',
       fontSize: '14px',
       fontFamily: 'monospace',
     });
-    const body = this.add.text(30, 512, line.text, {
+    const body = this.add.text(30, boxY - 36, line.text, {
       color: '#e2e8f0',
       fontSize: '13px',
       fontFamily: 'monospace',
       lineSpacing: 7,
       wordWrap: { width: 300 },
     });
-    const hint = this.add.text(180, 614, 'Tap to continue', {
+    const hint = this.add.text(180, boxY + 66, 'Tap to continue', {
       color: '#94a3b8',
       fontSize: '10px',
       fontFamily: 'monospace',

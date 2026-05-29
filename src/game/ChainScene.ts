@@ -1,6 +1,18 @@
 import Phaser from 'phaser';
+import { arduinoBridge } from './arduinoBridge';
 import { assetKeys, createSharedAnimations, loadGameAssets } from './assets';
-import { awardReward, progress } from './progress';
+import { awardReward, progress, saveCheckpoint, syncHardwareState } from './progress';
+import { showRewardBadge } from './rewardBadge';
+import {
+  BASE_GAME_CENTER_X,
+  BASE_GAME_CENTER_Y,
+  BASE_GAME_HEIGHT,
+  BASE_GAME_WIDTH,
+  addCoverImage,
+  addFullscreenRectangle,
+  getLayout,
+  setupResponsiveScene,
+} from './responsive';
 
 interface ChainBlock {
   id: string;
@@ -120,14 +132,18 @@ export default class ChainScene extends Phaser.Scene {
       'mainIdleUp',
       'oldManIdle',
       'oldManIdleBack',
-      'blacksmithScene',
-      'anvilSurface',
+      'blacksmithSceneExtended',
+      'anvilSurfaceExtended',
       'blacksmithSmashBack',
       'blacksmithIdleFront',
+      'chainBadge',
     ]);
   }
 
   create() {
+    setupResponsiveScene(this);
+    void arduinoBridge.reportScene(this.skipIntro ? 'ChainScene:Puzzle' : 'ChainScene:Intro');
+    saveCheckpoint({ scene: 'ChainScene', data: { skipIntro: this.skipIntro } });
     if (this.skipIntro) {
       this.createGameplay();
       this.showTutorialLine();
@@ -141,10 +157,10 @@ export default class ChainScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#090b12');
     createSharedAnimations(this);
 
-    this.add.image(180, 320, assetKeys.anvilSurface)
-      .setOrigin(0.5)
-      .setScale(0.248);
-    this.add.rectangle(180, 320, 360, 640, 0x020617, 0.32);
+    addFullscreenRectangle(this, 0x090b12);
+    addCoverImage(this, assetKeys.anvilSurfaceExtended);
+    const layout = getLayout(this);
+    this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.32);
     this.add.rectangle(180, 78, 336, 98, 0x090b12, 0.78).setStrokeStyle(2, 0xf97316, 0.75);
 
     this.add.text(24, 24, 'Forge the chain', {
@@ -181,10 +197,10 @@ export default class ChainScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#090b12');
     createSharedAnimations(this);
 
-    const background = this.add.image(180, 320, assetKeys.blacksmithScene)
-      .setOrigin(0.5)
-      .setScale(0.248);
-    const shade = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.08);
+    addFullscreenRectangle(this, 0x090b12);
+    const background = addCoverImage(this, assetKeys.blacksmithSceneExtended);
+    const layout = getLayout(this);
+    const shade = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.08);
 
     this.blacksmith = this.add.sprite(178, 434, assetKeys.blacksmithSmashBack, 0)
       .setOrigin(0.13, 1)
@@ -201,8 +217,7 @@ export default class ChainScene extends Phaser.Scene {
       .play('old-man-idle-back');
 
     this.add.container(0, 0, [background, shade, this.blacksmith, this.youngMiner, this.oldMan]);
-    this.cameras.main.setZoom(1.45);
-    this.cameras.main.centerOn(180, 214);
+    this.time.delayedCall(120, () => this.focusForgeIntroCamera());
 
     this.time.addEvent({
       delay: 760,
@@ -210,21 +225,70 @@ export default class ChainScene extends Phaser.Scene {
       callback: () => this.showHammerHit(),
     });
 
-    this.cameras.main.pan(180, 390, 2600, 'Sine.easeInOut', true, (_camera, progress) => {
-      if (progress === 1) this.revealForgeWitnesses();
-    });
+    this.time.delayedCall(1800, () => this.revealForgeWitnesses());
   }
 
   private revealForgeWitnesses() {
-    this.cameras.main.zoomTo(1, 1300, 'Sine.easeInOut', true);
-    this.cameras.main.pan(180, 320, 1300, 'Sine.easeInOut', true);
     this.tweens.add({
       targets: [this.youngMiner, this.oldMan],
       y: 612,
       duration: 1500,
       ease: 'Sine.easeInOut',
-      onComplete: () => this.waitForForgeDialogueTap(),
+      onComplete: () => this.restoreResponsiveCamera(() => this.waitForForgeDialogueTap()),
     });
+  }
+
+  private focusForgeIntroCamera() {
+    const camera = this.cameras.main;
+    const baseZoom = this.responsiveBaseZoom();
+    const focus = { y: BASE_GAME_CENTER_Y };
+
+    this.tweens.add({
+      targets: focus,
+      y: 412,
+      duration: 520,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => camera.centerOn(BASE_GAME_CENTER_X, focus.y),
+    });
+    this.tweens.add({
+      targets: camera,
+      zoom: baseZoom * 1.55,
+      duration: 520,
+      ease: 'Sine.easeInOut',
+      onComplete: () => camera.centerOn(BASE_GAME_CENTER_X, 412),
+    });
+  }
+
+  private restoreResponsiveCamera(onComplete: () => void) {
+    const camera = this.cameras.main;
+    const baseZoom = this.responsiveBaseZoom();
+    const focus = { y: 412 };
+
+    this.tweens.add({
+      targets: focus,
+      y: BASE_GAME_CENTER_Y,
+      duration: 520,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => camera.centerOn(BASE_GAME_CENTER_X, focus.y),
+    });
+    this.tweens.add({
+      targets: camera,
+      zoom: baseZoom,
+      duration: 520,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        camera.setZoom(baseZoom);
+        camera.centerOn(BASE_GAME_CENTER_X, BASE_GAME_CENTER_Y);
+        onComplete();
+      },
+    });
+  }
+
+  private responsiveBaseZoom() {
+    return Math.min(
+      this.scale.width / BASE_GAME_WIDTH,
+      this.scale.height / BASE_GAME_HEIGHT,
+    );
   }
 
   private waitForForgeDialogueTap() {
@@ -371,22 +435,27 @@ export default class ChainScene extends Phaser.Scene {
   private showVisualNovelDialogue(line: DialogueLine, onContinue: () => void) {
     this.dialogueLayer?.destroy(true);
 
-    const dim = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.48);
+    const layout = getLayout(this);
+    const boxY = layout.safeBottom - 104;
+    const boxHeight = 196;
+    const boxTop = boxY - boxHeight / 2;
+    const boxBottom = boxY + boxHeight / 2;
+    const dim = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.48);
     const portrait = this.createPortrait(line.speaker);
-    const box = this.add.rectangle(180, 548, 334, 164, 0x020617, 0.96).setStrokeStyle(3, 0xf97316);
-    const nameText = this.add.text(30, 482, line.speaker, {
+    const box = this.add.rectangle(180, boxY, 334, boxHeight, 0x020617, 0.96).setStrokeStyle(3, 0xf97316);
+    const nameText = this.add.text(30, boxTop + 18, line.speaker, {
       color: this.speakerColor(line.speaker),
       fontSize: '14px',
       fontFamily: 'monospace',
     });
-    const body = this.add.text(30, 512, line.text, {
+    const body = this.add.text(30, boxTop + 48, line.text, {
       color: '#e2e8f0',
-      fontSize: '13px',
+      fontSize: '12px',
       fontFamily: 'monospace',
-      lineSpacing: 7,
-      wordWrap: { width: 300 },
+      lineSpacing: 5,
+      wordWrap: { width: 298 },
     });
-    const hint = this.add.text(180, 614, 'Tap to continue', {
+    const hint = this.add.text(180, boxBottom - 18, 'Tap to continue', {
       color: '#94a3b8',
       fontSize: '10px',
       fontFamily: 'monospace',
@@ -426,7 +495,10 @@ export default class ChainScene extends Phaser.Scene {
   private transitionToGameplay() {
     this.dialogueLayer?.destroy(true);
     this.cameras.main.fadeOut(260, 8, 13, 24);
-    this.time.delayedCall(280, () => this.scene.restart({ skipIntro: true }));
+    this.time.delayedCall(280, () => {
+      saveCheckpoint({ scene: 'ChainScene', data: { skipIntro: true } });
+      this.scene.restart({ skipIntro: true });
+    });
   }
 
   private createSlidingPuzzle() {
@@ -680,8 +752,11 @@ export default class ChainScene extends Phaser.Scene {
     this.puzzleReady = false;
 
     this.time.delayedCall(850, () => {
-      const dim = this.add.rectangle(180, 320, 360, 640, 0x020617, 0.68);
-      const box = this.add.rectangle(180, 320, 314, 182, 0x052e16, 0.98).setStrokeStyle(4, 0x86efac);
+      const rewardText = 'Chain Key earned. The final summary will reveal the Prize Chest if it is connected.';
+      const layout = getLayout(this);
+      const dim = this.add.rectangle(layout.centerX, layout.centerY, layout.width, layout.height, 0x020617, 0.68);
+      const box = this.add.rectangle(180, 320, 314, 194, 0x111827, 0.98)
+        .setStrokeStyle(4, 0xf59e0b);
       const title = this.add.text(180, 252, 'KEY', {
         color: '#facc15',
         fontSize: '24px',
@@ -692,7 +767,7 @@ export default class ChainScene extends Phaser.Scene {
         fontSize: '18px',
         fontFamily: 'monospace',
       }).setOrigin(0.5);
-      const body = this.add.text(180, 340, 'Chain Key earned. The reward box is unlocked.', {
+      const body = this.add.text(180, 340, rewardText, {
         color: '#cbd5e1',
         fontSize: '12px',
         fontFamily: 'monospace',
@@ -703,10 +778,23 @@ export default class ChainScene extends Phaser.Scene {
 
       progress.block.status = 'chained';
       progress.chainComplete = true;
-      progress.boxUnlocked = true;
+      progress.boxUnlocked = false;
       awardReward('Chain Key');
+      syncHardwareState();
+      saveCheckpoint({ scene: 'StoryScene', data: { stage: 'afterChain' } });
       this.rewardBurst();
-      this.time.delayedCall(1300, () => this.scene.start('StoryScene', { stage: 'afterChain' }));
+      this.time.delayedCall(1300, () => {
+        showRewardBadge(
+          this,
+          assetKeys.chainBadge,
+          'Chain Badge Earned',
+          'You linked your block into the village chain.',
+          () => {
+            saveCheckpoint({ scene: 'StoryScene', data: { stage: 'afterChain' } });
+            this.scene.start('StoryScene', { stage: 'afterChain' });
+          },
+        );
+      });
     });
   }
 
